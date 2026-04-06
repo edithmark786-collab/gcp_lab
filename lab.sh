@@ -2,19 +2,19 @@
 #!/bin/bash
 set -e
 
-echo "🚀 GCP LAB AUTO SCRIPT STARTED"
+echo "Starting GCP Load Balancer Lab..."
 
 # ======================================================
-# 🔧 REGION INPUT (AUTO OR OVERRIDE)
+# REGION (AUTO OR OVERRIDE)
 # ======================================================
 
 REGION1=${REGION1:-$(gcloud compute project-info describe --format="value(defaultComputeRegion)" 2>/dev/null)}
 REGION1=${REGION1:-"us-central1"}
 
-ZONE1=${ZONE1:-$(gcloud compute zones list --filter="region:$REGION1" --format="value(name)" | head -n 1)}
-
 REGION2=${REGION2:-$(gcloud compute regions list --format="value(name)" | grep -v "$REGION1" | head -n 1)}
-ZONE2=${ZONE2:-$(gcloud compute zones list --filter="region:$REGION2" --format="value(name)" | head -n 1)}
+
+ZONE1=$(gcloud compute zones list --filter="region:$REGION1 AND status=UP" --format="value(name)" | head -n 1)
+ZONE2=$(gcloud compute zones list --filter="region:$REGION2 AND status=UP" --format="value(name)" | head -n 1)
 
 PROJECT_ID=$(gcloud config get-value project)
 
@@ -49,7 +49,7 @@ FWD_RULE="http-lb-forwarding-rule"
 # ======================================================
 # FIREWALL
 # ======================================================
-echo "🔥 Creating Firewall..."
+echo "Creating firewall rule..."
 gcloud compute firewall-rules create $FW_RULE \
   --network=$NETWORK \
   --allow=tcp:80 \
@@ -59,7 +59,7 @@ gcloud compute firewall-rules create $FW_RULE \
 # ======================================================
 # NAT
 # ======================================================
-echo "🔥 Creating NAT..."
+echo "Creating NAT..."
 gcloud compute routers create $ROUTER \
   --network=$NETWORK \
   --region=$REGION1 || true
@@ -73,7 +73,7 @@ gcloud compute routers nats create $NAT \
 # ======================================================
 # WEB SERVER
 # ======================================================
-echo "🔥 Creating Web Server..."
+echo "Creating webserver VM..."
 gcloud compute instances create webserver \
   --zone=$ZONE1 \
   --machine-type=e2-micro \
@@ -87,20 +87,24 @@ gcloud compute instances create webserver \
     systemctl start apache2
     systemctl enable apache2'
 
+echo "Waiting for VM setup..."
 sleep 90
 
-echo "🔥 Creating Image..."
+echo "Deleting VM but keeping disk..."
+gcloud compute instances delete webserver \
+  --zone=$ZONE1 \
+  --keep-disks=boot \
+  --quiet
+
+echo "Creating custom image..."
 gcloud compute images create $IMAGE \
   --source-disk=webserver \
   --source-disk-zone=$ZONE1
 
-gcloud compute instances delete webserver \
-  --zone=$ZONE1 --quiet
-
 # ======================================================
 # TEMPLATE + HEALTH CHECK
 # ======================================================
-echo "🔥 Creating Template..."
+echo "Creating instance template..."
 gcloud compute instance-templates create $TEMPLATE \
   --machine-type=e2-micro \
   --tags=allow-health-checks \
@@ -108,13 +112,13 @@ gcloud compute instance-templates create $TEMPLATE \
   --image=$IMAGE \
   --network=$NETWORK
 
-echo "🔥 Creating Health Check..."
+echo "Creating health check..."
 gcloud compute health-checks create tcp $HEALTH_CHECK --port=80
 
 # ======================================================
 # MIG
 # ======================================================
-echo "🔥 Creating MIGs..."
+echo "Creating managed instance groups..."
 gcloud compute instance-groups managed create $MIG1 \
   --region=$REGION1 \
   --template=$TEMPLATE \
@@ -125,7 +129,7 @@ gcloud compute instance-groups managed create $MIG2 \
   --template=$TEMPLATE \
   --size=1
 
-# Autoscaling
+echo "Setting autoscaling..."
 gcloud compute instance-groups managed set-autoscaling $MIG1 \
   --region=$REGION1 \
   --max-num-replicas=2 \
@@ -136,7 +140,7 @@ gcloud compute instance-groups managed set-autoscaling $MIG2 \
   --max-num-replicas=2 \
   --target-load-balancing-utilization=0.8
 
-# Autohealing
+echo "Setting autohealing..."
 gcloud compute instance-groups managed set-autohealing $MIG1 \
   --region=$REGION1 \
   --health-check=$HEALTH_CHECK \
@@ -150,7 +154,7 @@ gcloud compute instance-groups managed set-autohealing $MIG2 \
 # ======================================================
 # LOAD BALANCER
 # ======================================================
-echo "🔥 Creating Load Balancer..."
+echo "Creating load balancer..."
 
 gcloud compute backend-services create $BACKEND \
   --protocol=HTTP \
@@ -184,10 +188,16 @@ gcloud compute forwarding-rules create $FWD_RULE \
   --ports=80 \
   --global
 
-echo "🎉 LOAD BALANCER CREATED"
+gcloud compute forwarding-rules create ${FWD_RULE}-ipv6 \
+  --target-http-proxy=$PROXY \
+  --ports=80 \
+  --ip-version=IPV6 \
+  --global
+
+echo "Load balancer created successfully"
 
 # ======================================================
 # DONE
 # ======================================================
-echo "✅ LAB COMPLETED SUCCESSFULLY"
+echo "Lab setup completed successfully"
 ```
