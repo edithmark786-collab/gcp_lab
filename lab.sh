@@ -1,33 +1,22 @@
-```bash id="1eh7h8"
+```bash
 #!/bin/bash
 set -e
 
-echo "🔍 Auto-detecting regions and zones..."
+echo "🚀 GCP LAB AUTO SCRIPT STARTED"
 
-# Detect project
+# ======================================================
+# 🔧 REGION INPUT (AUTO OR OVERRIDE)
+# ======================================================
+
+REGION1=${REGION1:-$(gcloud compute project-info describe --format="value(defaultComputeRegion)" 2>/dev/null)}
+REGION1=${REGION1:-"us-central1"}
+
+ZONE1=${ZONE1:-$(gcloud compute zones list --filter="region:$REGION1" --format="value(name)" | head -n 1)}
+
+REGION2=${REGION2:-$(gcloud compute regions list --format="value(name)" | grep -v "$REGION1" | head -n 1)}
+ZONE2=${ZONE2:-$(gcloud compute zones list --filter="region:$REGION2" --format="value(name)" | head -n 1)}
+
 PROJECT_ID=$(gcloud config get-value project)
-
-# Try to get default region (lab sometimes sets this)
-REGION1=$(gcloud compute project-info describe \
-  --format="value(defaultComputeRegion)" 2>/dev/null)
-
-# If empty → fallback
-if [ -z "$REGION1" ]; then
-  REGION1="us-central1"
-fi
-
-# Pick second region different from first
-REGION2=$(gcloud compute regions list \
-  --format="value(name)" | grep -v "$REGION1" | head -n 1)
-
-# Get zones
-ZONE1=$(gcloud compute zones list \
-  --filter="region:$REGION1 AND status=UP" \
-  --format="value(name)" | head -n 1)
-
-ZONE2=$(gcloud compute zones list \
-  --filter="region:$REGION2 AND status=UP" \
-  --format="value(name)" | head -n 1)
 
 echo "--------------------------------"
 echo "Project : $PROJECT_ID"
@@ -35,9 +24,10 @@ echo "Region1 : $REGION1 ($ZONE1)"
 echo "Region2 : $REGION2 ($ZONE2)"
 echo "--------------------------------"
 
-# =============================
+# ======================================================
 # VARIABLES
-# =============================
+# ======================================================
+
 NETWORK="default"
 
 FW_RULE="fw-allow-health-checks"
@@ -56,18 +46,20 @@ URL_MAP="http-lb"
 PROXY="http-lb-proxy"
 FWD_RULE="http-lb-forwarding-rule"
 
-# =============================
-# EXECUTION
-# =============================
-
-echo "🚀 Creating firewall..."
+# ======================================================
+# FIREWALL
+# ======================================================
+echo "🔥 Creating Firewall..."
 gcloud compute firewall-rules create $FW_RULE \
   --network=$NETWORK \
   --allow=tcp:80 \
   --source-ranges=130.211.0.0/22,35.191.0.0/16 \
   --target-tags=allow-health-checks || true
 
-echo "🚀 Creating NAT..."
+# ======================================================
+# NAT
+# ======================================================
+echo "🔥 Creating NAT..."
 gcloud compute routers create $ROUTER \
   --network=$NETWORK \
   --region=$REGION1 || true
@@ -78,7 +70,10 @@ gcloud compute routers nats create $NAT \
   --auto-allocate-nat-external-ips \
   --nat-all-subnet-ip-ranges || true
 
-echo "🚀 Creating webserver..."
+# ======================================================
+# WEB SERVER
+# ======================================================
+echo "🔥 Creating Web Server..."
 gcloud compute instances create webserver \
   --zone=$ZONE1 \
   --machine-type=e2-micro \
@@ -94,7 +89,7 @@ gcloud compute instances create webserver \
 
 sleep 90
 
-echo "🚀 Creating image..."
+echo "🔥 Creating Image..."
 gcloud compute images create $IMAGE \
   --source-disk=webserver \
   --source-disk-zone=$ZONE1
@@ -102,7 +97,10 @@ gcloud compute images create $IMAGE \
 gcloud compute instances delete webserver \
   --zone=$ZONE1 --quiet
 
-echo "🚀 Creating template..."
+# ======================================================
+# TEMPLATE + HEALTH CHECK
+# ======================================================
+echo "🔥 Creating Template..."
 gcloud compute instance-templates create $TEMPLATE \
   --machine-type=e2-micro \
   --tags=allow-health-checks \
@@ -110,10 +108,13 @@ gcloud compute instance-templates create $TEMPLATE \
   --image=$IMAGE \
   --network=$NETWORK
 
-echo "🚀 Creating health check..."
+echo "🔥 Creating Health Check..."
 gcloud compute health-checks create tcp $HEALTH_CHECK --port=80
 
-echo "🚀 Creating MIGs..."
+# ======================================================
+# MIG
+# ======================================================
+echo "🔥 Creating MIGs..."
 gcloud compute instance-groups managed create $MIG1 \
   --region=$REGION1 \
   --template=$TEMPLATE \
@@ -124,7 +125,7 @@ gcloud compute instance-groups managed create $MIG2 \
   --template=$TEMPLATE \
   --size=1
 
-echo "🚀 Autoscaling..."
+# Autoscaling
 gcloud compute instance-groups managed set-autoscaling $MIG1 \
   --region=$REGION1 \
   --max-num-replicas=2 \
@@ -135,7 +136,7 @@ gcloud compute instance-groups managed set-autoscaling $MIG2 \
   --max-num-replicas=2 \
   --target-load-balancing-utilization=0.8
 
-echo "🚀 Autohealing..."
+# Autohealing
 gcloud compute instance-groups managed set-autohealing $MIG1 \
   --region=$REGION1 \
   --health-check=$HEALTH_CHECK \
@@ -146,7 +147,11 @@ gcloud compute instance-groups managed set-autohealing $MIG2 \
   --health-check=$HEALTH_CHECK \
   --initial-delay=60
 
-echo "🚀 Creating Load Balancer..."
+# ======================================================
+# LOAD BALANCER
+# ======================================================
+echo "🔥 Creating Load Balancer..."
+
 gcloud compute backend-services create $BACKEND \
   --protocol=HTTP \
   --health-checks=$HEALTH_CHECK \
@@ -179,5 +184,10 @@ gcloud compute forwarding-rules create $FWD_RULE \
   --ports=80 \
   --global
 
-echo "🎉 LAB COMPLETED!"
+echo "🎉 LOAD BALANCER CREATED"
+
+# ======================================================
+# DONE
+# ======================================================
+echo "✅ LAB COMPLETED SUCCESSFULLY"
 ```
