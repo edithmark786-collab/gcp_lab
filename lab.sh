@@ -8,7 +8,7 @@ echo "Starting GCP Load Balancer Lab..."
 # REQUIRED INPUT (SET FROM LAB)
 # ======================================================
 REGION1=${REGION1:-"us-west1"}
-REGION2=${REGION2:-"asia-southeast1"}   # ✅ FIXED
+REGION2=${REGION2:-"asia-southeast1"}
 ZONE1=${ZONE1:-"us-west1-a"}
 
 echo "Using REGION1=$REGION1 REGION2=$REGION2 ZONE1=$ZONE1"
