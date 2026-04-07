@@ -5,18 +5,13 @@ set -e
 echo "Starting GCP Load Balancer Lab..."
 
 # ======================================================
-# ONLY CHANGE THESE (FROM LAB)
+# REQUIRED INPUT (SET FROM LAB)
 # ======================================================
-REGION1=${REGION1:-"us-east4"}
+REGION1=${REGION1:-"us-west1"}
 REGION2=${REGION2:-"asia-east1"}
+ZONE1=${ZONE1:-"us-west1-a"}
 
-# ======================================================
-# AUTO ZONES (NO NEED TO CHANGE)
-# ======================================================
-ZONE1=$(gcloud compute zones list --filter="region:$REGION1" --format="value(name)" | head -n 1)
-ZONE2=$(gcloud compute zones list --filter="region:$REGION2" --format="value(name)" | head -n 1)
-
-echo "Using: $REGION1 ($ZONE1) and $REGION2 ($ZONE2)"
+echo "Using REGION1=$REGION1 REGION2=$REGION2 ZONE1=$ZONE1"
 
 # ======================================================
 # VARIABLES
@@ -25,11 +20,14 @@ NETWORK="default"
 FW_RULE="fw-allow-health-checks"
 ROUTER="nat-router-us1"
 NAT="nat-config"
+
 IMAGE="mywebserver"
 TEMPLATE="mywebserver-template"
 HEALTH_CHECK="http-health-check"
+
 MIG1="us-1-mig"
 MIG2="notus-1-mig"
+
 BACKEND="http-backend"
 URL_MAP="http-lb"
 PROXY="http-lb-proxy"
@@ -130,7 +128,7 @@ gcloud beta compute instance-groups managed set-autohealing $MIG2 \
   --initial-delay=60
 
 # ======================================================
-# LOAD BALANCER
+# LOAD BALANCER (STRICT LAB CONFIG)
 # ======================================================
 gcloud compute backend-services create $BACKEND \
   --protocol=HTTP \
@@ -144,6 +142,7 @@ gcloud compute backend-services add-backend $BACKEND \
   --instance-group-region=$REGION1 \
   --balancing-mode=RATE \
   --max-rate-per-instance=50 \
+  --capacity-scaler=1.0 \
   --global
 
 gcloud compute backend-services add-backend $BACKEND \
@@ -151,6 +150,7 @@ gcloud compute backend-services add-backend $BACKEND \
   --instance-group-region=$REGION2 \
   --balancing-mode=UTILIZATION \
   --max-utilization=0.8 \
+  --capacity-scaler=1.0 \
   --global
 
 gcloud compute url-maps create $URL_MAP \
@@ -176,7 +176,7 @@ gcloud compute forwarding-rules create ${FWD_RULE}-ipv6 \
 LB_IP=$(gcloud compute forwarding-rules describe $FWD_RULE \
   --global --format="value(IPAddress)")
 
-echo "Waiting for Load Balancer..."
+echo "Waiting for LB..."
 
 while true; do
   RESULT=$(curl -m2 -s http://$LB_IP || true)
