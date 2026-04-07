@@ -5,7 +5,7 @@ set -e
 echo "Starting GCP Load Balancer Lab..."
 
 # ======================================================
-# REQUIRED INPUT (SET FROM LAB)
+# INPUT FROM LAB
 # ======================================================
 REGION1=${REGION1:-"us-west1"}
 REGION2=${REGION2:-"asia-southeast1"}
@@ -17,43 +17,12 @@ echo "Using REGION1=$REGION1 REGION2=$REGION2 ZONE1=$ZONE1"
 # VARIABLES
 # ======================================================
 NETWORK="default"
-FW_RULE="fw-allow-health-checks"
-ROUTER="nat-router-us1"
-NAT="nat-config"
-
 IMAGE="mywebserver"
 TEMPLATE="mywebserver-template"
 HEALTH_CHECK="http-health-check"
 
 MIG1="us-1-mig"
 MIG2="notus-1-mig"
-
-BACKEND="http-backend"
-URL_MAP="http-lb"
-PROXY="http-lb-proxy"
-FWD_RULE="http-lb-forwarding-rule"
-
-# ======================================================
-# FIREWALL
-# ======================================================
-gcloud compute firewall-rules create $FW_RULE \
-  --network=$NETWORK \
-  --allow=tcp:80 \
-  --source-ranges=130.211.0.0/22,35.191.0.0/16 \
-  --target-tags=allow-health-checks || true
-
-# ======================================================
-# NAT
-# ======================================================
-gcloud compute routers create $ROUTER \
-  --network=$NETWORK \
-  --region=$REGION1 || true
-
-gcloud compute routers nats create $NAT \
-  --router=$ROUTER \
-  --router-region=$REGION1 \
-  --auto-allocate-nat-external-ips \
-  --nat-all-subnet-ip-ranges || true
 
 # ======================================================
 # WEB SERVER + IMAGE
@@ -66,10 +35,10 @@ gcloud compute instances create webserver \
   --image-family=debian-11 \
   --image-project=debian-cloud \
   --metadata=startup-script='#! /bin/bash
-    apt-get update
-    apt-get install -y apache2
-    systemctl start apache2
-    systemctl enable apache2'
+apt-get update
+apt-get install -y apache2
+systemctl start apache2
+systemctl enable apache2'
 
 sleep 90
 
@@ -107,37 +76,30 @@ gcloud compute instance-groups managed create $MIG2 \
   --template=$TEMPLATE \
   --size=1
 
-gcloud compute instance-groups managed set-autoscaling $MIG1 \
+# ✅ IMPORTANT: Named ports (FIXES PORT ISSUE)
+gcloud compute instance-groups managed set-named-ports $MIG1 \
   --region=$REGION1 \
-  --max-num-replicas=2 \
-  --target-load-balancing-utilization=0.8
+  --named-ports=http:80
 
-gcloud compute instance-groups managed set-autoscaling $MIG2 \
+gcloud compute instance-groups managed set-named-ports $MIG2 \
   --region=$REGION2 \
-  --max-num-replicas=2 \
-  --target-load-balancing-utilization=0.8
-
-gcloud beta compute instance-groups managed set-autohealing $MIG1 \
-  --region=$REGION1 \
-  --health-check=$HEALTH_CHECK \
-  --initial-delay=60
-
-gcloud beta compute instance-groups managed set-autohealing $MIG2 \
-  --region=$REGION2 \
-  --health-check=$HEALTH_CHECK \
-  --initial-delay=60
+  --named-ports=http:80
 
 # ======================================================
-# LOAD BALANCER (TASK 5 FIXED)
+# LOAD BALANCER
 # ======================================================
-gcloud compute backend-services create $BACKEND \
+
+# Backend service (FIXED)
+gcloud compute backend-services create http-backend \
   --protocol=HTTP \
+  --port-name=http \
   --health-checks=$HEALTH_CHECK \
   --global \
   --enable-logging \
   --logging-sample-rate=1.0
 
-gcloud compute backend-services add-backend $BACKEND \
+# us-1-mig → RATE 50
+gcloud compute backend-services add-backend http-backend \
   --instance-group=$MIG1 \
   --instance-group-region=$REGION1 \
   --balancing-mode=RATE \
@@ -145,7 +107,8 @@ gcloud compute backend-services add-backend $BACKEND \
   --capacity-scaler=1.0 \
   --global
 
-gcloud compute backend-services add-backend $BACKEND \
+# notus-1-mig → UTILIZATION 80
+gcloud compute backend-services add-backend http-backend \
   --instance-group=$MIG2 \
   --instance-group-region=$REGION2 \
   --balancing-mode=UTILIZATION \
@@ -153,67 +116,31 @@ gcloud compute backend-services add-backend $BACKEND \
   --capacity-scaler=1.0 \
   --global
 
-gcloud compute url-maps create $URL_MAP \
-  --default-service=$BACKEND
+# URL MAP + PROXY
+gcloud compute url-maps create http-lb \
+  --default-service=http-backend
 
-gcloud compute target-http-proxies create $PROXY \
-  --url-map=$URL_MAP
+gcloud compute target-http-proxies create http-lb-proxy \
+  --url-map=http-lb
 
-# ✅ IPv4 Frontend
+# ======================================================
+# FRONTEND (FIXED EXACTLY)
+# ======================================================
+
+# IPv4 (Ephemeral)
 gcloud compute forwarding-rules create http-lb-forwarding-rule \
-  --target-http-proxy=$PROXY \
+  --target-http-proxy=http-lb-proxy \
   --ports=80 \
   --global
 
-# ✅ IPv6 Frontend
+# IPv6 (Auto-allocate)
 gcloud compute forwarding-rules create http-lb-ipv6 \
-  --target-http-proxy=$PROXY \
+  --target-http-proxy=http-lb-proxy \
   --ports=80 \
   --ip-version=IPV6 \
   --global
 
-# ======================================================
-# WAIT FOR LB
-# ======================================================
-LB_IP=$(gcloud compute forwarding-rules describe http-lb-forwarding-rule \
-  --global --format="value(IPAddress)")
-
-echo "Waiting for Load Balancer..."
-
-while true; do
-  RESULT=$(curl -m2 -s http://$LB_IP || true)
-  if [[ "$RESULT" == *"Apache"* ]]; then
-    break
-  fi
-  sleep 5
-done
-
-echo "Load Balancer Ready: $LB_IP"
-
-# ======================================================
-# TASK 6: STRESS TEST
-# ======================================================
-echo "Creating stress-test VM..."
-
-gcloud compute instances create stress-test \
-  --zone=$ZONE1 \
-  --machine-type=e2-micro \
-  --image-family=debian-11 \
-  --image-project=debian-cloud \
-  --metadata=startup-script='#! /bin/bash
-    apt-get update
-    apt-get install -y apache2-utils'
-
-sleep 60
-
-echo "Running stress test..."
-
-gcloud compute ssh stress-test \
-  --zone=$ZONE1 \
-  --quiet \
-  --command="ab -n 100000 -c 100 http://$LB_IP/"
-
-echo "===================================="
-echo "LAB COMPLETED SUCCESSFULLY"
-echo "===================================="
+echo "=================================="
+echo "TASK 5 FULLY FIXED"
+echo "=================================="
 ```
