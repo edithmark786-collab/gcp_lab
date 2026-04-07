@@ -8,7 +8,7 @@ echo "Starting GCP Load Balancer Lab..."
 # REQUIRED INPUT (SET FROM LAB)
 # ======================================================
 REGION1=${REGION1:-"us-west1"}
-REGION2=${REGION2:-"asia-east1"}
+REGION2=${REGION2:-"asia-southeast1"}   # ✅ FIXED
 ZONE1=${ZONE1:-"us-west1-a"}
 
 echo "Using REGION1=$REGION1 REGION2=$REGION2 ZONE1=$ZONE1"
@@ -170,41 +170,6 @@ gcloud compute forwarding-rules create ${FWD_RULE}-ipv6 \
   --ip-version=IPV6 \
   --global
 
-# ======================================================
-# WAIT FOR LB
-# ======================================================
-LB_IP=$(gcloud compute forwarding-rules describe $FWD_RULE \
-  --global --format="value(IPAddress)")
-
-echo "Waiting for LB..."
-
-while true; do
-  RESULT=$(curl -m2 -s http://$LB_IP || true)
-  if [[ "$RESULT" == *"Apache"* ]]; then
-    break
-  fi
-  sleep 5
-done
-
-# ======================================================
-# STRESS TEST
-# ======================================================
-# gcloud compute instances create stress-test \
-#   --zone=$ZONE1 \
-#   --machine-type=e2-micro \
-#   --image-family=debian-11 \
-#   --image-project=debian-cloud \
-#   --metadata=startup-script='#! /bin/bash
-#     apt-get update
-#     apt-get install -y apache2-utils'
-
-# sleep 60
-
-# gcloud compute ssh stress-test \
-#   --zone=$ZONE1 \
-#   --quiet \
-#   --command="ab -n 500000 -c 1000 http://$LB_IP/"
-
 echo "LAB COMPLETED SUCCESSFULLY"
-echo "Do task 6 manually"
+echo "Do stress test manually"
 ```
