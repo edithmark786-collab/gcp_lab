@@ -20,7 +20,6 @@ NETWORK="default"
 IMAGE="mywebserver"
 TEMPLATE="mywebserver-template"
 HEALTH_CHECK="http-health-check"
-
 MIG1="us-1-mig"
 MIG2="notus-1-mig"
 
@@ -35,10 +34,10 @@ gcloud compute instances create webserver \
   --image-family=debian-11 \
   --image-project=debian-cloud \
   --metadata=startup-script='#! /bin/bash
-apt-get update
-apt-get install -y apache2
-systemctl start apache2
-systemctl enable apache2'
+    apt-get update
+    apt-get install -y apache2
+    systemctl start apache2
+    systemctl enable apache2'
 
 sleep 90
 
@@ -76,7 +75,7 @@ gcloud compute instance-groups managed create $MIG2 \
   --template=$TEMPLATE \
   --size=1
 
-# ✅ IMPORTANT: Named ports (FIXES PORT ISSUE)
+# 🔥 IMPORTANT: set named port (PORT 80)
 gcloud compute instance-groups managed set-named-ports $MIG1 \
   --region=$REGION1 \
   --named-ports=http:80
@@ -86,10 +85,8 @@ gcloud compute instance-groups managed set-named-ports $MIG2 \
   --named-ports=http:80
 
 # ======================================================
-# LOAD BALANCER
+# LOAD BALANCER (CORRECT)
 # ======================================================
-
-# Backend service (FIXED)
 gcloud compute backend-services create http-backend \
   --protocol=HTTP \
   --port-name=http \
@@ -98,7 +95,7 @@ gcloud compute backend-services create http-backend \
   --enable-logging \
   --logging-sample-rate=1.0
 
-# us-1-mig → RATE 50
+# us-1-mig (RATE 50)
 gcloud compute backend-services add-backend http-backend \
   --instance-group=$MIG1 \
   --instance-group-region=$REGION1 \
@@ -107,7 +104,7 @@ gcloud compute backend-services add-backend http-backend \
   --capacity-scaler=1.0 \
   --global
 
-# notus-1-mig → UTILIZATION 80
+# notus-1-mig (UTILIZATION 80)
 gcloud compute backend-services add-backend http-backend \
   --instance-group=$MIG2 \
   --instance-group-region=$REGION2 \
@@ -123,17 +120,14 @@ gcloud compute url-maps create http-lb \
 gcloud compute target-http-proxies create http-lb-proxy \
   --url-map=http-lb
 
-# ======================================================
-# FRONTEND (FIXED EXACTLY)
-# ======================================================
-
-# IPv4 (Ephemeral)
+# FRONTEND (EXACT MATCH)
+# IPv4
 gcloud compute forwarding-rules create http-lb-forwarding-rule \
   --target-http-proxy=http-lb-proxy \
   --ports=80 \
   --global
 
-# IPv6 (Auto-allocate)
+# IPv6
 gcloud compute forwarding-rules create http-lb-ipv6 \
   --target-http-proxy=http-lb-proxy \
   --ports=80 \
@@ -141,6 +135,6 @@ gcloud compute forwarding-rules create http-lb-ipv6 \
   --global
 
 echo "=================================="
-echo "TASK 5 FULLY FIXED"
+echo "TASK 5 FIXED - LB CONFIG CORRECT"
 echo "=================================="
 ```
