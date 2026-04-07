@@ -128,7 +128,7 @@ gcloud beta compute instance-groups managed set-autohealing $MIG2 \
   --initial-delay=60
 
 # ======================================================
-# LOAD BALANCER (STRICT LAB CONFIG)
+# LOAD BALANCER (TASK 5 FIXED)
 # ======================================================
 gcloud compute backend-services create $BACKEND \
   --protocol=HTTP \
@@ -159,17 +159,61 @@ gcloud compute url-maps create $URL_MAP \
 gcloud compute target-http-proxies create $PROXY \
   --url-map=$URL_MAP
 
-gcloud compute forwarding-rules create $FWD_RULE \
+# ✅ IPv4 Frontend
+gcloud compute forwarding-rules create http-lb-forwarding-rule \
   --target-http-proxy=$PROXY \
   --ports=80 \
   --global
 
-gcloud compute forwarding-rules create ${FWD_RULE}-ipv6 \
+# ✅ IPv6 Frontend
+gcloud compute forwarding-rules create http-lb-ipv6 \
   --target-http-proxy=$PROXY \
   --ports=80 \
   --ip-version=IPV6 \
   --global
 
+# ======================================================
+# WAIT FOR LB
+# ======================================================
+LB_IP=$(gcloud compute forwarding-rules describe http-lb-forwarding-rule \
+  --global --format="value(IPAddress)")
+
+echo "Waiting for Load Balancer..."
+
+while true; do
+  RESULT=$(curl -m2 -s http://$LB_IP || true)
+  if [[ "$RESULT" == *"Apache"* ]]; then
+    break
+  fi
+  sleep 5
+done
+
+echo "Load Balancer Ready: $LB_IP"
+
+# ======================================================
+# TASK 6: STRESS TEST
+# ======================================================
+echo "Creating stress-test VM..."
+
+gcloud compute instances create stress-test \
+  --zone=$ZONE1 \
+  --machine-type=e2-micro \
+  --image-family=debian-11 \
+  --image-project=debian-cloud \
+  --metadata=startup-script='#! /bin/bash
+    apt-get update
+    apt-get install -y apache2-utils'
+
+sleep 60
+
+echo "Running stress test..."
+
+gcloud compute ssh stress-test \
+  --zone=$ZONE1 \
+  --quiet \
+  --command="ab -n 100000 -c 100 http://$LB_IP/"
+
+echo "===================================="
 echo "LAB COMPLETED SUCCESSFULLY"
-echo "Do stress test manually"
+echo "===================================="
 ```
