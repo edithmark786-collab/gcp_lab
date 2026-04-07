@@ -189,21 +189,22 @@ done
 # ======================================================
 # STRESS TEST
 # ======================================================
-gcloud compute instances create stress-test \
-  --zone=$ZONE1 \
-  --machine-type=e2-micro \
-  --image-family=debian-11 \
-  --image-project=debian-cloud \
-  --metadata=startup-script='#! /bin/bash
-    apt-get update
-    apt-get install -y apache2-utils'
+# gcloud compute instances create stress-test \
+#   --zone=$ZONE1 \
+#   --machine-type=e2-micro \
+#   --image-family=debian-11 \
+#   --image-project=debian-cloud \
+#   --metadata=startup-script='#! /bin/bash
+#     apt-get update
+#     apt-get install -y apache2-utils'
 
-sleep 60
+# sleep 60
 
-gcloud compute ssh stress-test \
-  --zone=$ZONE1 \
-  --quiet \
-  --command="ab -n 500000 -c 1000 http://$LB_IP/"
+# gcloud compute ssh stress-test \
+#   --zone=$ZONE1 \
+#   --quiet \
+#   --command="ab -n 500000 -c 1000 http://$LB_IP/"
 
 echo "LAB COMPLETED SUCCESSFULLY"
+echo "Do task 6 manually"
 ```
